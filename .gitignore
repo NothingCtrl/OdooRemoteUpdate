@@ -3,3 +3,4 @@ venv
 !example_config.json
 *.pyc
 .idea
+configs/

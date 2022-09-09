@@ -17,4 +17,9 @@ Create a config file, name: `demo_config.json`, file content:
 }
 ```
 
-Run update request: `python app.py demo_config.json`, this will run update for module `foo`, `bar`
+This config with execute update for modules: `foo`, `bar` on remote server `http://localhost:8069`, database `my_database`
+
+Run `app.py` to execute update:
+ 
+* `python app.py demo_config.json`
+* or to **overwrite** config password, run: `python app.py demo_config.json real-password`

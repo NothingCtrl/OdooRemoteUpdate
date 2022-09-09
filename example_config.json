@@ -1,0 +1,7 @@
+{
+    "url": "http://localhost:8069",
+    "db": "my_database",
+    "username": "admin",
+    "password": "admin",
+    "modules_to_update": ["foo", "bar"]
+}

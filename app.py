@@ -5,6 +5,7 @@ import os
 import time
 import json
 import sys
+import datetime
 import xmlrpc.client
 
 base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -42,13 +43,20 @@ def log_to_file(log_text: str):
 
 def run_update(cf: Config):
     common = xmlrpc.client.ServerProxy('{}/xmlrpc/2/common'.format(cf.url))
-    uid = common.authenticate(cf.db, cf.username, cf.password, {})      # <- use it later
-    models = xmlrpc.client.ServerProxy('{}/xmlrpc/2/object'.format(cf.url))     # <- user it later
+    uid = common.authenticate(cf.db, cf.username, cf.password, {})
+    models = xmlrpc.client.ServerProxy('{}/xmlrpc/2/object'.format(cf.url))
     model_name = 'ir.module.module'
     update_method = 'button_immediate_upgrade'
 
     total_update = len(cf.modules_to_update)
-    print("=== Total module to update: {}, list: {} ===".format(total_update, cf.modules_to_update))
+    print("\n", "=" * 70, sep='')
+    print(f"- ERP server: {cf.url if not color_allow else colored(cf.url, 'green')}")
+    print(f"- Database: {cf.db if not color_allow else colored(cf.db, 'green')}")
+    print("- Total module to update: {}, module technical name list:{}".format(total_update, "".join(f"\n    + {item}" for item in cf.modules_to_update)))
+    print("=" * 70, "\n", sep='')
+    input("Press Enter to continue...")
+    print("Running (current time is: ", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), ")...\n", sep='')
+    
     count = 0
     for tech_name in cf.modules_to_update:
         count += 1

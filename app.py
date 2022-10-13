@@ -7,10 +7,12 @@ import json
 import sys
 import datetime
 import xmlrpc.client
+import PySimpleGUI as sg
 
 base_dir = os.path.dirname(os.path.abspath(__file__))
 
 color_allow = True
+gui_status_text = ''
 try:
     from termcolor import colored
     if os.name == 'nt':
@@ -41,21 +43,40 @@ def log_to_file(log_text: str):
         f_log.write(log_text.replace('\\\\n', "\n").replace('\\n', "\n"))
     return log_file
 
-def run_update(cf: Config):
+def run_update(cf: Config, output_handler: callable = None, is_gui: bool = False):
+    global color_allow
+    if is_gui:
+        color_allow = False
+    def output(msg: str, sep="\n"):
+        if not callable(output_handler):
+            print(msg, sep=sep)
+        else:
+            output_handler(msg)
+    if is_gui:
+        output(f"Running (current time is: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})...\n", sep='')
+    output("Connecting remote server...")
     common = xmlrpc.client.ServerProxy('{}/xmlrpc/2/common'.format(cf.url))
-    uid = common.authenticate(cf.db, cf.username, cf.password, {})
+    try:
+        uid = common.authenticate(cf.db, cf.username, cf.password, {})
+        output("Remote server connected")
+    except ConnectionRefusedError as e:
+        output(str(e))
+        return
     models = xmlrpc.client.ServerProxy('{}/xmlrpc/2/object'.format(cf.url))
     model_name = 'ir.module.module'
     update_method = 'button_immediate_upgrade'
-
     total_update = len(cf.modules_to_update)
-    print("\n", "=" * 70, sep='')
-    print(f"- ERP server: {cf.url if not color_allow else colored(cf.url, 'green')}")
-    print(f"- Database: {cf.db if not color_allow else colored(cf.db, 'green')}")
-    print("- Total module to update: {}, module technical name list:{}".format(total_update, "".join(f"\n    + {item}" for item in cf.modules_to_update)))
-    print("=" * 70, "\n", sep='')
-    input("Press Enter to continue...")
-    print("Running (current time is: ", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), ")...\n", sep='')
+
+    if not is_gui:
+        print("\n", "=" * 70, sep='')
+    output(f"- ERP server: {cf.url if not color_allow else colored(cf.url, 'green')}")
+    output(f"- Database: {cf.db if not color_allow else colored(cf.db, 'green')}")
+    output("- Total module to update: {}, module technical name list:{}".format(total_update, "".join(f"\n    + {item}" for item in cf.modules_to_update)))
+    if not is_gui:
+        print("=" * 70, "\n", sep='')
+        input("Press Enter to continue...")
+    if not is_gui:
+        output(f"Running (current time is: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})...\n", sep='')
     
     count = 0
     for tech_name in cf.modules_to_update:
@@ -64,9 +85,9 @@ def run_update(cf: Config):
             ids = models.execute_kw(cf.db, uid, cf.password, model_name, "search", [[('name', '=', tech_name.strip())]])
         except xmlrpc.client.Fault as e:
             if 'Access denied' in str(e):
-                print("- 'Access denied' please check user account and login password!")
+                output("- 'Access denied' please check user account and login password!")
             else:
-                print("- Error: {}".format(e))
+                output("- Error: {}".format(e))
             return
         if ids:
             start_time = time.time()
@@ -80,25 +101,26 @@ def run_update(cf: Config):
                 # success, server response: client reload or redirect to home page
                 end_time = time.time()
                 if not color_allow:
-                    print("- [{}/{}] Update module [{}] --- OK, run-time: {:.2f} seconds".format(count, total_update,
+                    output("- [{}/{}] Update module [{}] --- OK, run-time: {:.2f} seconds".format(count, total_update,
                                                                                                  tech_name, end_time - start_time))
                 else:
-                    print("- [{}/{}] Update module [{}] --- {}, run-time: {:.2f} seconds".format(count, total_update,
+                    output("- [{}/{}] Update module [{}] --- {}, run-time: {:.2f} seconds".format(count, total_update,
                                                                                                  tech_name, colored('OK', 'green'), end_time - start_time))
             else:
                 if not color_allow:
-                    print("- [{}/{}] Update module [{}] --- FAILED".format(count, total_update, tech_name), "RESPONSE: {}".format(result))
+                    output("- [{}/{}] Update module [{}] --- FAILED".format(count, total_update, tech_name), "RESPONSE: {}".format(result))
                 else:
-                    print("- [{}/{}] Update module [{}] --- {}".format(count, total_update, tech_name, colored('FAILED', 'red')), "RESPONSE: {}".format(result))
+                    output("- [{}/{}] Update module [{}] --- {}".format(count, total_update, tech_name, colored('FAILED', 'red')), "RESPONSE: {}".format(result))
                 if log_file_path:
-                    print("    - Log file: {}".format(log_file_path))
+                    output("    - Log file: {}".format(log_file_path))
         else:
             if not color_allow:
-                print("- [{}/{}] Update module [{}] --- FAILED, module is not found!".format(count, total_update, tech_name))
+                output("- [{}/{}] Update module [{}] --- FAILED, module is not found!".format(count, total_update, tech_name))
             else:
-                print("- [{}/{}] Update module [{}] --- {}, module is not found!".format(count, total_update, tech_name, colored('FAILED', 'red')))
-    
-if __name__ == "__main__":
+                output("- [{}/{}] Update module [{}] --- {}, module is not found!".format(count, total_update, tech_name, colored('FAILED', 'red')))
+
+def console_mode():
+
     if len(sys.argv) <= 1:
         if not color_allow:
             print("Required call with config file path, ex: 'python app.py /path/to/config.json' or to overwrite "
@@ -119,4 +141,78 @@ if __name__ == "__main__":
                 print("The config file: {} is not found!".format(sys.argv[1]))
             else:
                 print("The config file: {} is not found!".format(colored(sys.argv[1], 'red')))
+
+def gui_mode():
+    config_update = [
+        [
+            sg.Text("Config file", size=(15,1)),
+            sg.Input(size=(25,1), key='-CF-FILE-'),
+            sg.FileBrowse(),
+        ],
+        [
+            sg.Text("Modules to update", size=(15,1)),
+            sg.Multiline(size=(25, 4), key='-MODULES-')
+        ],
+        [
+            sg.Text('Admin password', size=(15,1)),
+            sg.Input(size=(25, 1), password_char='*', key='-ADMIN-PWD-')
+        ],
+        [
+            sg.Button("Run now", enable_events=True, key='-BTN-RUN-')
+        ]
+    ]
+    log_status = [
+        [
+            sg.Text("Status"),
+            sg.Multiline(size=(60, 10), key='-STATUS-', disabled=True, autoscroll=True, auto_refresh=True)
+        ]
+    ]
+    layout = [
+        [
+            sg.Column(config_update),
+            sg.VSeparator(),
+            sg.Column(log_status)
+        ]
+    ]
+    # sg.ChangeLookAndFeel('Dark')  # dark mode
+    window = sg.Window(title="Odoo Remote Update Request", layout=layout,
+                       margins=(15, 15))
+
+    def update_status(text: str, clear: bool = False):
+        global gui_status_text
+        if not clear:
+            gui_status_text += f"{text}\n"
+        else:
+            gui_status_text = f"{text}\n"
+        window['-STATUS-'].update(gui_status_text)
+        # window.Refresh()
+
+    while True:
+        event, values = window.read()
+        if event == sg.WIN_CLOSED:
+            break
+        if event == '-BTN-RUN-':
+            config_file = values['-CF-FILE-']
+            modules = values['-MODULES-']
+            admin_pwd = values['-ADMIN-PWD-']
+            if config_file and modules:
+                if os.path.isfile(config_file):
+                    with open(config_file, 'r') as f:
+                        config = json.load(f)
+                        erp_config = Config(**config)
+                        erp_config.modules_to_update = modules.splitlines()
+                    if admin_pwd:
+                        erp_config.password = admin_pwd
+                update_status('=== Start update request... ===', clear=True)
+                run_update(erp_config, update_status, True)
+                update_status("=== End ===")
+            else:
+                if not config_file:
+                    update_status('Please select a config file...', clear=True)
+                elif not modules:
+                    update_status('Please input modules name, each on one line', clear=True)
+
+if __name__ == "__main__":
+    # console_mode()
+    gui_mode()
     

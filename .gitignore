@@ -5,3 +5,7 @@ venv
 .idea
 configs/
 logs/
+*.bat
+build/
+dist/
+app.spec

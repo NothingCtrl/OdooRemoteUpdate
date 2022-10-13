@@ -19,7 +19,20 @@ Create a config file, name: `demo_config.json`, file content:
 
 This config with execute update for modules: `foo`, `bar` on remote server `http://localhost:8069`, database `my_database`
 
-Run `app.py` to execute update:
+### Run app
+
+> Default is GUI mode
+
+* **Console** mode:
+
+  Run `app.py` to execute update:
  
-* `python app.py demo_config.json`
-* or to **overwrite** config password, run: `python app.py demo_config.json real-password`
+  * `python app.py demo_config.json`
+  * or to **overwrite** config password, run: `python app.py demo_config.json real-password`
+
+* **GUI** mode:
+  * `python app.py`
+
+### Build app
+
+* Build with `pyinstaller`: `pyinstaller --onefile --noconsole app.py`

@@ -82,6 +82,7 @@ def run_update(cf: Config, output_handler: callable = None, is_gui: bool = False
     for tech_name in cf.modules_to_update:
         count += 1
         try:
+            output(f"- Requesting update module: {tech_name}...")
             ids = models.execute_kw(cf.db, uid, cf.password, model_name, "search", [[('name', '=', tech_name.strip())]])
         except xmlrpc.client.Fault as e:
             if 'Access denied' in str(e):
@@ -158,6 +159,11 @@ def gui_mode():
             sg.Input(size=(25, 1), password_char='*', key='-ADMIN-PWD-')
         ],
         [
+            sg.Text('Waiting time (sec)', size=(15, 1)),
+            sg.OptionMenu(size=(20, 1),
+                          values=(0, 30, 60, 120, 180, 300, 600, 900, 1800, 3600), default_value=0, key='-WAITING-TIME-')
+        ],
+        [
             sg.Button("Run now", enable_events=True, key='-BTN-RUN-')
         ]
     ]
@@ -195,6 +201,8 @@ def gui_mode():
             config_file = values['-CF-FILE-']
             modules = values['-MODULES-']
             admin_pwd = values['-ADMIN-PWD-']
+            waiting_time = values['-WAITING-TIME-']
+            waiting_time = int(waiting_time) if waiting_time else 0
             if config_file and modules:
                 if os.path.isfile(config_file):
                     with open(config_file, 'r') as f:
@@ -203,6 +211,15 @@ def gui_mode():
                         erp_config.modules_to_update = modules.splitlines()
                     if admin_pwd:
                         erp_config.password = admin_pwd
+                if waiting_time:
+                    update_status(f"Wait for {waiting_time} seconds...")
+                    i = 0
+                    while i < waiting_time:
+                        i += 1
+                        time.sleep(1)
+                        window.refresh()
+                        if not i % 5:
+                            update_status(f"Time wait remain: {waiting_time - i} seconds...")
                 update_status('=== Start update request... ===', clear=True)
                 run_update(erp_config, update_status, True)
                 update_status("=== End ===")

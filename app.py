@@ -190,7 +190,9 @@ def gui_mode():
                        margins=(15, 15))
 
     def update_status(text: str, clear: bool = False):
-        global gui_status_text
+        global gui_status_text, is_exit
+        if is_exit:
+            return
         if not clear:
             gui_status_text += f"{text}\n"
         else:
@@ -206,6 +208,7 @@ def gui_mode():
                 is_cancel = True
             if event == sg.WIN_CLOSED:
                 is_exit = True
+                is_cancel = True
                 break
 
     th_read_event = threading.Thread(target=read_event, daemon=True)
@@ -230,6 +233,8 @@ def gui_mode():
             waiting_time = values['-WAITING-TIME-']
             waiting_time = int(waiting_time) if waiting_time else 0
             if config_file and modules:
+                start_update_msg = "=== Start update request... ==="
+                no_admin_pw_msg = "*** Warning: The admin password is empty ***"
                 if os.path.isfile(config_file):
                     with open(config_file, 'r') as f:
                         config = json.load(f)
@@ -237,22 +242,30 @@ def gui_mode():
                         erp_config.modules_to_update = modules.splitlines()
                     if admin_pwd:
                         erp_config.password = admin_pwd
-                if waiting_time:
-                    update_status(f"Wait for {waiting_time} seconds...")
-                    i = 0
-                    while i < waiting_time and not is_cancel:
-                        i += 1
-                        time.sleep(1)
-                        window.refresh()
-                        if not i % 5:
-                            update_status(f"Time wait remain: {waiting_time - i} seconds...")
-                if is_cancel:
-                    update_status('Cancel...')
-                    is_cancel = False
+                    else:
+                        if not erp_config.password:
+                            if waiting_time:
+                                update_status(no_admin_pw_msg)
+                            else:
+                                start_update_msg += f"\n{no_admin_pw_msg}"
+                    if waiting_time:
+                        update_status(f"Wait for {waiting_time} seconds...")
+                        i = 0
+                        while i < waiting_time and not is_cancel:
+                            i += 1
+                            time.sleep(1)
+                            window.refresh()
+                            if not i % 5:
+                                update_status(f"Time wait remain: {waiting_time - i} seconds...")
+                    if is_cancel:
+                        update_status('Cancel...')
+                        is_cancel = False
+                    else:
+                        update_status(start_update_msg, clear=True)
+                        run_update(erp_config, update_status, True)
+                        update_status("=== End ===")
                 else:
-                    update_status('=== Start update request... ===', clear=True)
-                    run_update(erp_config, update_status, True)
-                    update_status("=== End ===")
+                    update_status(f"The config file \"{config_file}\" is not exit!", True)
             else:
                 if not config_file:
                     update_status('Please select a config file...', clear=True)

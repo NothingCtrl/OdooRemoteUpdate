@@ -6,13 +6,17 @@ import time
 import json
 import sys
 import datetime
+import threading
 import xmlrpc.client
 import PySimpleGUI as sg
 
 base_dir = os.path.dirname(os.path.abspath(__file__))
 
+INIT_STATE_EVENT = '--INIT-STATE--'
 color_allow = True
 gui_status_text = ''
+event, values, is_cancel, is_running, is_exit = INIT_STATE_EVENT, {}, False, False, False
+
 try:
     from termcolor import colored
     if os.name == 'nt':
@@ -164,7 +168,8 @@ def gui_mode():
                           values=(0, 30, 60, 120, 180, 300, 600, 900, 1800, 3600), default_value=0, key='-WAITING-TIME-')
         ],
         [
-            sg.Button("Run now", enable_events=True, key='-BTN-RUN-')
+            sg.Button("Run now", enable_events=True, key='-BTN-RUN-'),
+            sg.Button("Cancel", enable_events=True, key='-BTN-CANCEL-')
         ]
     ]
     log_status = [
@@ -193,11 +198,32 @@ def gui_mode():
         window['-STATUS-'].update(gui_status_text)
         # window.Refresh()
 
+    def read_event():
+        global event, values, is_cancel, is_running, is_exit
+        while True:
+            event, values = window.read()
+            if event == '-BTN-CANCEL-' and is_running:
+                is_cancel = True
+            if event == sg.WIN_CLOSED:
+                is_exit = True
+                break
+
+    th_read_event = threading.Thread(target=read_event, daemon=True)
+    th_read_event.start()
+
     while True:
-        event, values = window.read()
-        if event == sg.WIN_CLOSED:
+        global event, values, is_cancel, is_running, is_exit
+        # event, values = window.read()
+        # if event == sg.WIN_CLOSED:
+        #     break
+        time.sleep(.001)
+        if is_exit:
             break
         if event == '-BTN-RUN-':
+            if not is_running:
+                is_running = True
+            else:
+                return
             config_file = values['-CF-FILE-']
             modules = values['-MODULES-']
             admin_pwd = values['-ADMIN-PWD-']
@@ -214,20 +240,27 @@ def gui_mode():
                 if waiting_time:
                     update_status(f"Wait for {waiting_time} seconds...")
                     i = 0
-                    while i < waiting_time:
+                    while i < waiting_time and not is_cancel:
                         i += 1
                         time.sleep(1)
                         window.refresh()
                         if not i % 5:
                             update_status(f"Time wait remain: {waiting_time - i} seconds...")
-                update_status('=== Start update request... ===', clear=True)
-                run_update(erp_config, update_status, True)
-                update_status("=== End ===")
+                if is_cancel:
+                    update_status('Cancel...')
+                    is_cancel = False
+                else:
+                    update_status('=== Start update request... ===', clear=True)
+                    run_update(erp_config, update_status, True)
+                    update_status("=== End ===")
             else:
                 if not config_file:
                     update_status('Please select a config file...', clear=True)
                 elif not modules:
                     update_status('Please input modules name, each on one line', clear=True)
+            is_running = False
+        if event != sg.WIN_CLOSED:
+            event = INIT_STATE_EVENT
 
 if __name__ == "__main__":
     # console_mode()

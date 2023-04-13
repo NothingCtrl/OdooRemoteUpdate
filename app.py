@@ -7,7 +7,10 @@ import json
 import sys
 import datetime
 import threading
+import traceback
 import xmlrpc.client
+from xmlrpc.client import Transport
+from http import client
 import PySimpleGUI as sg
 
 base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -51,20 +54,40 @@ def run_update(cf: Config, output_handler: callable = None, is_gui: bool = False
     global color_allow
     if is_gui:
         color_allow = False
+
     def output(msg: str, sep="\n"):
         if not callable(output_handler):
             print(msg, sep=sep)
         else:
-            output_handler(msg)
+            output_handler(msg, sep=sep)
+
+    # ref: https://stackoverflow.com/a/2426293/2533787
+    class TimeoutTransport(Transport):
+        timeout = 10.0
+
+        def set_timeout(self, timeout):
+            self.timeout = timeout
+
+        def make_connection(self, host):
+            h = client.HTTPConnection(host, timeout=self.timeout)
+            return h
+
+    output(f"- ERP server: {cf.url if not color_allow else colored(cf.url, 'green')}")
+    output(f"- Database: {cf.db if not color_allow else colored(cf.db, 'green')}")
+
     if is_gui:
-        output(f"Running (current time is: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})...\n", sep='')
-    output("Connecting remote server...")
-    common = xmlrpc.client.ServerProxy('{}/xmlrpc/2/common'.format(cf.url))
+        output(f"- Time now: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+    output("- Connecting remote server...", sep=" ")
+    # socket.setdefaulttimeout(15 * 60)
+    t = TimeoutTransport()
+    t.set_timeout(15*60)
+    common = xmlrpc.client.ServerProxy('{}/xmlrpc/2/common'.format(cf.url), transport=t)
     try:
         uid = common.authenticate(cf.db, cf.username, cf.password, {})
-        output("Remote server connected")
+        output("connected!")
     except ConnectionRefusedError as e:
-        output(str(e))
+        output("error!\n" + str(e))
         return
     models = xmlrpc.client.ServerProxy('{}/xmlrpc/2/object'.format(cf.url))
     model_name = 'ir.module.module'
@@ -73,13 +96,10 @@ def run_update(cf: Config, output_handler: callable = None, is_gui: bool = False
 
     if not is_gui:
         print("\n", "=" * 70, sep='')
-    output(f"- ERP server: {cf.url if not color_allow else colored(cf.url, 'green')}")
-    output(f"- Database: {cf.db if not color_allow else colored(cf.db, 'green')}")
-    output("- Total module to update: {}, module technical name list:{}".format(total_update, "".join(f"\n    + {item}" for item in cf.modules_to_update)))
+    output("- Total module to update: {}, module list:{}".format(total_update, "".join(f"\n    + {item}" for item in cf.modules_to_update)))
     if not is_gui:
         print("=" * 70, "\n", sep='')
         input("Press Enter to continue...")
-    if not is_gui:
         output(f"Running (current time is: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})...\n", sep='')
     
     count = 0
@@ -151,7 +171,7 @@ def gui_mode():
     config_update = [
         [
             sg.Text("Config file", size=(15,1)),
-            sg.Input(size=(25,1), key='-CF-FILE-'),
+            sg.Input(size=(25,1), key='-CF-FILE-', enable_events=True),
             sg.FileBrowse(),
         ],
         [
@@ -189,14 +209,14 @@ def gui_mode():
     window = sg.Window(title="Odoo Remote Update Request", layout=layout,
                        margins=(15, 15))
 
-    def update_status(text: str, clear: bool = False):
+    def update_status(text: str, clear: bool = False, sep="\n"):
         global gui_status_text, is_exit
         if is_exit:
             return
         if not clear:
-            gui_status_text += f"{text}\n"
+            gui_status_text += f"{text}{sep}"
         else:
-            gui_status_text = f"{text}\n"
+            gui_status_text = f"{text}{sep}"
         window['-STATUS-'].update(gui_status_text)
         # window.Refresh()
 
@@ -214,6 +234,8 @@ def gui_mode():
     th_read_event = threading.Thread(target=read_event, daemon=True)
     th_read_event.start()
 
+    current_cf_file = None
+
     while True:
         global event, values, is_cancel, is_running, is_exit
         # event, values = window.read()
@@ -222,6 +244,19 @@ def gui_mode():
         time.sleep(.001)
         if is_exit:
             break
+        if values:
+            if current_cf_file != values['-CF-FILE-']:
+                current_cf_file = values['-CF-FILE-']
+                update_status(f"---\nConfig file: {current_cf_file if current_cf_file else ''}")
+                if current_cf_file and not values['-MODULES-']:
+                    with open(current_cf_file, 'r') as f:
+                        try:
+                            config = json.load(f)
+                            if 'modules_to_update' in config:
+                                window['-MODULES-'].update("\n".join(config['modules_to_update']))
+                        except Exception:
+                            update_status(f"---\nError: Cannot read config file {current_cf_file}\nError logs:\n{traceback.format_exc()}")
+
         if event == '-BTN-RUN-':
             if not is_running:
                 is_running = True
@@ -236,36 +271,54 @@ def gui_mode():
                 start_update_msg = "=== Start update request... ==="
                 no_admin_pw_msg = "*** Warning: The admin password is empty ***"
                 if os.path.isfile(config_file):
+                    allow_run = True
                     with open(config_file, 'r') as f:
-                        config = json.load(f)
-                        erp_config = Config(**config)
-                        erp_config.modules_to_update = modules.splitlines()
-                    if admin_pwd:
-                        erp_config.password = admin_pwd
-                    else:
-                        if not erp_config.password:
-                            if waiting_time:
-                                update_status(no_admin_pw_msg)
-                            else:
-                                start_update_msg += f"\n{no_admin_pw_msg}"
-                    if waiting_time:
-                        update_status(f"Wait for {waiting_time} seconds...")
-                        i = 0
-                        while i < waiting_time and not is_cancel:
-                            i += 1
-                            time.sleep(1)
-                            window.refresh()
-                            if not i % 5:
-                                update_status(f"Time wait remain: {waiting_time - i} seconds...")
-                    if is_cancel:
-                        update_status('Cancel...')
-                        is_cancel = False
-                    else:
-                        update_status(start_update_msg, clear=True)
-                        run_update(erp_config, update_status, True)
-                        update_status("=== End ===")
+                        try:
+                            config = json.load(f)
+                            erp_config = Config(**config)
+                            erp_config.modules_to_update = []
+                            for item in modules.splitlines():
+                                if item.strip():
+                                    erp_config.modules_to_update.append(item.strip())
+                            if not erp_config.url or not erp_config.db:
+                                update_status("---\nError: Missing config for remote server URL and database name")
+                                allow_run = False
+                            if not erp_config.modules_to_update and allow_run:
+                                update_status("---\nError: Please input module(s) to update")
+                                allow_run = False
+                        except Exception:
+                            allow_run = False
+                            update_status(f"---\nError: Reading config file failed!\nError logs:\n{traceback.format_exc()}")
+                    if allow_run:
+                        if admin_pwd:
+                            erp_config.password = admin_pwd
+                        else:
+                            if not erp_config.password:
+                                if waiting_time:
+                                    update_status(no_admin_pw_msg)
+                                else:
+                                    start_update_msg += f"\n{no_admin_pw_msg}"
+                        if waiting_time:
+                            update_status(f"Wait for {waiting_time} seconds...")
+                            i = 0
+                            while i < waiting_time and not is_cancel:
+                                i += 1
+                                time.sleep(1)
+                                window.refresh()
+                                if not i % 5:
+                                    update_status(f"Time wait remain: {waiting_time - i} seconds...")
+                        if is_cancel:
+                            update_status('Cancel...')
+                            is_cancel = False
+                        else:
+                            update_status(start_update_msg, clear=True)
+                            try:
+                                run_update(erp_config, update_status, True)
+                                update_status("=== End ===")
+                            except Exception:
+                                update_status(f"---\nError: Request update error\nError logs:\n{traceback.format_exc()}")
                 else:
-                    update_status(f"The config file \"{config_file}\" is not exit!", True)
+                    update_status(f"=== ERROR ===\nThe config file \"{config_file}\" is not exit!", True)
             else:
                 if not config_file:
                     update_status('Please select a config file...', clear=True)

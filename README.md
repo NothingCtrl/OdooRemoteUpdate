@@ -1,12 +1,12 @@
 # Remote Odoo Request Update
 
-Request remote server Odoo run update on specific modules with XMLRPC call
+A convenient tool help you update one or more module(s) on remote Odoo (OpenERP) server without access Web GUI.
 
-Package `termcolor` is optional to support colored text in terminal
+_Package `termcolor` is optional to support colored text in terminal_
 
-**Usage example:**
+### Usage example
 
-Create a config file, name: `demo_config.json`, file content:
+Firstly, you will need create a config file, example `demo_config.json` with content:
 ```json
 {
     "url": "http://localhost:8069",
@@ -17,22 +17,30 @@ Create a config file, name: `demo_config.json`, file content:
 }
 ```
 
-This config with execute update for modules: `foo`, `bar` on remote server `http://localhost:8069`, database `my_database`
+This config tell application execute update for modules: `foo`, `bar` using target URL `http://localhost:8069` and database `my_database`
 
-### Run app
+#### Run app
 
-> Default is GUI mode
+GUI mode will active by default if app call without params.
 
 * **Console** mode:
 
-  Run `app.py` to execute update:
+  Run `app.py` with param:
  
   * `python app.py demo_config.json`
-  * or to **overwrite** config password, run: `python app.py demo_config.json real-password`
+  * or you want to **overwrite** admin password, run: `python app.py demo_config.json real-password`
 
 * **GUI** mode:
   * `python app.py`
+  
+    > ![](images/OdooRUR.png)
 
-### Build app
+### Build execute file
 
-* Build with `pyinstaller`: `pyinstaller --onefile --noconsole app.py`
+* Build with `pyinstaller`: 
+    ```bash
+    pyinstaller --onefile --noconsole --name OdooRUR app.py
+    # with icon
+    # param --add-data to add resource to execute file
+    pyinstaller --onefile --noconsole --name OdooRUR --icon resources\icon.ico --add-data "resources\\icon.ico;resources" app.py
+    ```

@@ -9,3 +9,5 @@ logs/
 build/
 dist/
 app.spec
+OdooRUR.spec
+examples/*

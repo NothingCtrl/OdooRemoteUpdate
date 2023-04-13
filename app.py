@@ -27,6 +27,11 @@ try:
 except ImportError:
     color_allow = False
 
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base_path, relative_path)
+
 class Config:
     url: str
     db: str
@@ -79,7 +84,6 @@ def run_update(cf: Config, output_handler: callable = None, is_gui: bool = False
         output(f"- Time now: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
     output("- Connecting remote server...", sep=" ")
-    # socket.setdefaulttimeout(15 * 60)
     t = TimeoutTransport()
     t.set_timeout(15*60)
     common = xmlrpc.client.ServerProxy('{}/xmlrpc/2/common'.format(cf.url), transport=t)
@@ -208,6 +212,7 @@ def gui_mode():
     # sg.ChangeLookAndFeel('Dark')  # dark mode
     window = sg.Window(title="Odoo Remote Update Request", layout=layout,
                        margins=(15, 15))
+    window.set_icon(resource_path('resources/icon.ico'))
 
     def update_status(text: str, clear: bool = False, sep="\n"):
         global gui_status_text, is_exit
@@ -329,6 +334,8 @@ def gui_mode():
             event = INIT_STATE_EVENT
 
 if __name__ == "__main__":
-    # console_mode()
-    gui_mode()
+    if len(sys.argv) >= 2:
+        console_mode()
+    else:
+        gui_mode()
     

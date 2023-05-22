@@ -17,7 +17,6 @@ base_dir = os.path.dirname(os.path.abspath(__file__))
 
 INIT_STATE_EVENT = '--INIT-STATE--'
 color_allow = True
-gui_status_text = ''
 event, values, is_cancel, is_running, is_exit = INIT_STATE_EVENT, {}, False, False, False
 
 try:
@@ -42,6 +41,7 @@ class Config:
     password: str
     modules_to_update: list = []
     language_to_update: str = ""
+    config_file: str = ""
 
     def __init__(self, url: str, db: str, password: str, modules_to_update: list, username: str = "admin"):
         self.url = url
@@ -52,12 +52,13 @@ class Config:
         self.language_to_update = ""
 
 
-def log_to_file(log_text: str, suffix="_execute_log_"):
+def log_to_file(log_text: str, suffix="_execute_log_", config_file: str = ""):
     log_dir = os.path.join(base_dir, 'logs')
+    config_name = os.path.basename(config_file) if config_file else os.path.basename(sys.argv[1])
     if not os.path.isdir(log_dir):
         os.mkdir(log_dir)
-    log_file = os.path.join(log_dir, os.path.basename(sys.argv[1]).replace('.json', '') + suffix + str(int(time.time())) + '.txt')
-    with open(log_file, 'w+') as f_log:
+    log_file = os.path.join(log_dir, config_name.replace('.json', '') + suffix + str(int(time.time())) + '.txt')
+    with open(log_file, 'w+', errors='ignore') as f_log:
         f_log.write(log_text.replace('\\\\n', "\n").replace('\\n', "\n"))
     return log_file
 
@@ -87,6 +88,10 @@ def run_update(cf: Config, output_handler: callable = None, is_gui: bool = False
     def xlmrpc_login(allow_none=False):
         common = xmlrpc.client.ServerProxy('{}/xmlrpc/2/common'.format(cf.url), transport=t)
         _version = common.version()['server_version']
+        if "." in _version:
+            _version = _version.split(".")[0]
+        if str.isnumeric(_version):
+            _version = int(_version)
         try:
             _uid = common.authenticate(cf.db, cf.username, cf.password, {})
             output("connected!")
@@ -140,7 +145,7 @@ def run_update(cf: Config, output_handler: callable = None, is_gui: bool = False
             try:
                 result = models.execute_kw(cf.db, uid, cf.password, model_name, update_method, [ids])
             except xmlrpc.client.Fault as e:
-                log_file_path = log_to_file(e.__str__())
+                log_file_path = log_to_file(e.__str__(), config_file=cf.config_file)
                 result = None
             if type(result) is dict and (
                     ('tag' in result and result['tag'] == 'reload') or ('url' in result and result['url'] == '/web')):
@@ -152,21 +157,24 @@ def run_update(cf: Config, output_handler: callable = None, is_gui: bool = False
                     output("- [{}/{}] Update module [{}] --- {}, run-time: {:.2f} seconds".format(count, total_update, tech_name, colored('OK', 'green'), end_time - start_time))
             else:
                 if not color_allow:
-                    output("- [{}/{}] Update module [{}] --- FAILED".format(count, total_update, tech_name), "RESPONSE: {}".format(result))
+                    output("- [{}/{}] Update module [{}] --- FAILED{}".format(count, total_update, tech_name, "\nRESPONSE: {}".format(result)))
                 else:
-                    output("- [{}/{}] Update module [{}] --- {}".format(count, total_update, tech_name, colored('FAILED', 'red')), "RESPONSE: {}".format(result))
+                    output("- [{}/{}] Update module [{}] --- {}{}".format(count, total_update, tech_name, colored('FAILED', 'red'), "RESPONSE: {}".format(result)))
                 if log_file_path:
                     output("    - Log file: {}".format(log_file_path))
         else:
             if not color_allow:
                 output("- [{}/{}] Update module [{}] --- FAILED, module is not found!".format(count, total_update, tech_name))
             else:
-                output(
-                    "- [{}/{}] Update module [{}] --- {}, module is not found!".format(count, total_update, tech_name, colored('FAILED', 'red')))
+                output("- [{}/{}] Update module [{}] --- {}, module is not found!".format(count, total_update, tech_name, colored('FAILED', 'red')))
 
     if cf.language_to_update:
         # odoo from version 11.0 required patch to remote call internal function _update_translations
-        required_patch_odoo_versions = (11.0, 12.0, 13.0, 14.0, 15.0)
+        try:
+            required_patch_odoo_versions = remote_odoo_version >= 11
+        except TypeError:
+            required_patch_odoo_versions = False
+            output(f"- Cannot get remote server version from text: {remote_odoo_version}")
         code = cf.language_to_update.strip().split(" ")[0] if " " in cf.language_to_update.strip() else cf.language_to_update.strip()
         output(f"- Updating translation for language code: {code}")
         log_text = ""
@@ -176,7 +184,7 @@ def run_update(cf: Config, output_handler: callable = None, is_gui: bool = False
                 start_time = time.time()
                 mods = models.execute_kw(cf.db, uid, cf.password, "ir.module.module", "search", [[('state', '=', 'installed')]])
                 output(f"  - {len(mods)} modules to update translate")
-                if remote_odoo_version in required_patch_odoo_versions:
+                if required_patch_odoo_versions:
                     result = models.execute_kw(cf.db, uid, cf.password, "ir.module.module", "remote_update_translation", [mods], {'filter_lang': code, 'context': {'overwrite': True}})
                 else:
                     # using native function of odoo, response nothing
@@ -206,7 +214,7 @@ def run_update(cf: Config, output_handler: callable = None, is_gui: bool = False
                 output(f"  - Could not find the language code: {code} active in database, please check it is correct and installed")
         except xmlrpc.client.Fault as e:
             log_text = log_text + f"\nXMLRPC error:\n{e.__str__()}" if log_text else e.__str__()
-            log_file_path_lang = log_to_file(log_text, suffix="_trans_log_")
+            log_file_path_lang = log_to_file(log_text, suffix="_trans_log_", config_file=cf.config_file)
             output("    - Log file: {}".format(log_file_path_lang))
 
 
@@ -247,7 +255,7 @@ def gui_mode():
         [
             sg.Text("Lang.(s) to update", size=(15, 1)),
             sg.OptionMenu(size=(20, 1),
-                          values=("vi_VN (Vietnamese)", "en_US (English)", "fr_FR (French)",
+                          values=("", "vi_VN (Vietnamese)", "en_US (English)", "fr_FR (French)",
                                   "es_ES (Spanish)", "zh_CN (Chinese (Simplified))"),
                           key='-LANGUAGE-')
             # sg.Multiline(size=(25, 4), key='-LANGUAGES-', default_text="vi_VN")
@@ -285,16 +293,14 @@ def gui_mode():
                        margins=(15, 15))
     window.set_icon(resource_path('resources/icon.ico'))
 
-    def update_status(text: str, clear: bool = False, sep="\n"):
-        global gui_status_text, is_exit
+    def update_status(text: str, clear: bool = False, sep="\n", font: str = None):
+        global is_exit
         if is_exit:
             return
         if not clear:
-            gui_status_text += f"{text}{sep}"
+            window['-STATUS-'].print(text, sep=sep, font=font)
         else:
-            gui_status_text = f"{text}{sep}"
-        window['-STATUS-'].update(gui_status_text)
-        # window.Refresh()
+            window['-STATUS-'].update(text, sep=sep, font=font)
 
     def read_event():
         global event, values, is_cancel, is_running, is_exit
@@ -330,6 +336,7 @@ def gui_mode():
                             config = json.load(f)
                             if 'modules_to_update' in config:
                                 window['-MODULES-'].update("\n".join(config['modules_to_update']))
+                            update_status(f"  - ERP server: {config['url']}\n  - Database: {config['db']}\n  - Username: {config['username']}\n  - Password set: {'YES' if config['password'] else 'NO'}", font="Consolas 9 bold")
                         except Exception:
                             update_status(f"---\nError: Cannot read config file {current_cf_file}\nError logs:\n{traceback.format_exc()}")
 
@@ -354,6 +361,7 @@ def gui_mode():
                             config = json.load(f)
                             erp_config = Config(**config)
                             erp_config.modules_to_update = []
+                            erp_config.config_file = current_cf_file
                             if modules:
                                 for item in modules.splitlines():
                                     if item.strip():
@@ -393,13 +401,15 @@ def gui_mode():
                             update_status('Cancel...')
                             is_cancel = False
                         else:
-                            update_status(start_update_msg, clear=True)
+                            update_status(start_update_msg + "\n", clear=True)
                             try:
                                 run_update(erp_config, update_status, True)
                                 update_status("=== End ===")
                             except Exception:
-                                update_status(
-                                    f"---\nError: Request update error\nError logs:\n{traceback.format_exc()}")
+                                log_text = traceback.format_exc()
+                                log_file = log_to_file(log_text, config_file=current_cf_file)
+                                update_status(f"\n---\nError: Request update error, shorten logs:\n{log_text[:100]}...\n...{log_text[-100:]}\nDetail in log file: {log_file}")
+                                update_status("=== End ===")
                 else:
                     update_status(f"=== ERROR ===\nThe config file \"{config_file}\" is not exit!", True)
             else:

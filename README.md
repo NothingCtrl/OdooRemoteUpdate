@@ -19,6 +19,10 @@ Firstly, you will need create a config file, example `demo_config.json` with con
 
 This config tell application execute update for modules: `foo`, `bar` using target URL `http://localhost:8069` and database `my_database`
 
+### Remote update translation
+
+* For Odoo from version 11.0+, it's required add a patch function for remote call, for reference check: `patch_odoo/ir_module_module.py`, function: `remote_update_translation`
+
 #### Run app
 
 GUI mode will active by default if app call without params.

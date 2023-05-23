@@ -68,11 +68,11 @@ def run_update(cf: Config, output_handler: callable = None, is_gui: bool = False
     if is_gui:
         color_allow = False
 
-    def output(msg: str, sep="\n"):
+    def output(msg: str, sep="\n", font: str = None, text_color: str = None):
         if not callable(output_handler):
             print(msg, sep=sep)
         else:
-            output_handler(msg, sep=sep)
+            output_handler(msg, sep=sep, font=font, text_color=text_color)
 
     # ref: https://stackoverflow.com/a/2426293/2533787
     class TimeoutTransport(Transport):
@@ -94,16 +94,19 @@ def run_update(cf: Config, output_handler: callable = None, is_gui: bool = False
             _version = int(_version)
         try:
             _uid = common.authenticate(cf.db, cf.username, cf.password, {})
-            output("connected!")
-            output(f"- Remote server version: {_version}")
+            output("connected!", text_color="green")
+            output("- Remote server version: ", sep="")
+            output(_version, font="arial 9 bold")
         except ConnectionRefusedError as e:
             output("error!\n" + str(e))
             return
         _models = xmlrpc.client.ServerProxy(f'{cf.url}/xmlrpc/2/object', allow_none=allow_none)
         return _models, _uid, _version
 
-    output(f"- ERP server: {cf.url if not color_allow else colored(cf.url, 'green')}")
-    output(f"- Database: {cf.db if not color_allow else colored(cf.db, 'green')}")
+    output("- ERP server: ", sep="")
+    output(cf.url, font="Consolas 9", text_color="green")
+    output("- Database: ", sep="")
+    output(cf.db, font="Consolas 9", text_color="green")
 
     if is_gui:
         output(f"- Time now: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -119,7 +122,10 @@ def run_update(cf: Config, output_handler: callable = None, is_gui: bool = False
     if not is_gui:
         print("\n", "=" * 70, sep='')
     if cf.modules_to_update:
-        output("- Total module to update: {}, module list:{}".format(total_update, "".join(f"\n    + {item}" for item in cf.modules_to_update)))
+        output("- Total module to update: ", sep="")
+        output(str(total_update), font="arial 9 bold", sep="")
+        _m_list = "".join(f"\n    + {item}" for item in cf.modules_to_update)
+        output(f", module list:{_m_list}")
     else:
         output("- No module to update")
     if not is_gui:
@@ -131,13 +137,19 @@ def run_update(cf: Config, output_handler: callable = None, is_gui: bool = False
     for tech_name in cf.modules_to_update:
         count += 1
         try:
-            output(f"- Requesting update module: {tech_name}...")
+            output(f"- Requesting update module: ", sep="")
+            output(tech_name, font="arial 9 bold", sep="")
+            output("...")
             ids = models.execute_kw(cf.db, uid, cf.password, model_name, "search", [[('name', '=', tech_name.strip())]])
         except xmlrpc.client.Fault as e:
             if 'Access denied' in str(e):
-                output("- 'Access denied' please check user account and login password!")
+                output("- ", sep="")
+                output("'Access denied'", font="arial 9 bold", sep="")
+                output(" please check user account and login password!")
             else:
-                output("- Error: {}".format(e))
+                output("- ", sep="")
+                output("Error: ", font="arial 9 bold", sep="")
+                output(str(e), font="Consolas 9")
             return
         if ids:
             start_time = time.time()
@@ -151,22 +163,26 @@ def run_update(cf: Config, output_handler: callable = None, is_gui: bool = False
                     ('tag' in result and result['tag'] == 'reload') or ('url' in result and result['url'] == '/web')):
                 # success, server response: client reload or redirect to home page
                 end_time = time.time()
-                if not color_allow:
-                    output("- [{}/{}] Update module [{}] --- OK, run-time: {:.2f} seconds".format(count, total_update, tech_name, end_time - start_time))
-                else:
-                    output("- [{}/{}] Update module [{}] --- {}, run-time: {:.2f} seconds".format(count, total_update, tech_name, colored('OK', 'green'), end_time - start_time))
+                output(f"- [{count}/{total_update}] Update module ", sep="")
+                output(tech_name, font='arial 9 bold', sep="")
+                output(" --- ", sep="")
+                output("OK", font='arial 9', text_color='green', sep="")
+                output(f", run-time: {end_time - start_time:.2f} seconds")
             else:
-                if not color_allow:
-                    output("- [{}/{}] Update module [{}] --- FAILED{}".format(count, total_update, tech_name, "\nRESPONSE: {}".format(result)))
-                else:
-                    output("- [{}/{}] Update module [{}] --- {}{}".format(count, total_update, tech_name, colored('FAILED', 'red'), "RESPONSE: {}".format(result)))
+                output(f"- [{count}/{total_update}] Update module ", sep="")
+                output(tech_name, font='arial 9 bold', sep="")
+                output(" --- ", sep="")
+                output("FAILED", font='arial 9', text_color='red', sep="")
+                output(", RESPONSE: ", sep="")
+                output(result, font="Consolas 9")
                 if log_file_path:
-                    output("    - Log file: {}".format(log_file_path))
+                    output("    - Log file: ", sep="")
+                    output(log_file_path, font="Consolas 9")
         else:
-            if not color_allow:
-                output("- [{}/{}] Update module [{}] --- FAILED, module is not found!".format(count, total_update, tech_name))
-            else:
-                output("- [{}/{}] Update module [{}] --- {}, module is not found!".format(count, total_update, tech_name, colored('FAILED', 'red')))
+            output(f"- [{count}/{total_update}] Update module ", sep="")
+            output(tech_name, font='arial 9 bold', sep="")
+            output(" --- ", sep="")
+            output("module is not found!", font='arial 9', text_color='red')
 
     if cf.language_to_update:
         # odoo from version 11.0 required patch to remote call internal function _update_translations
@@ -174,16 +190,20 @@ def run_update(cf: Config, output_handler: callable = None, is_gui: bool = False
             required_patch_odoo_versions = remote_odoo_version >= 11
         except TypeError:
             required_patch_odoo_versions = False
-            output(f"- Cannot get remote server version from text: {remote_odoo_version}")
+            output("- Cannot get remote server version from text: ", sep="")
+            output(remote_odoo_version, font="arial 9 bold")
         code = cf.language_to_update.strip().split(" ")[0] if " " in cf.language_to_update.strip() else cf.language_to_update.strip()
-        output(f"- Updating translation for language code: {code}")
+        output("- Updating translation for language code: ", sep="")
+        output(code, font="arial 9 bold")
         log_text = ""
         try:
             code_ids = models.execute_kw(cf.db, uid, cf.password, "res.lang", "search", [[('code', '=', code)]])
             if code_ids:
                 start_time = time.time()
                 mods = models.execute_kw(cf.db, uid, cf.password, "ir.module.module", "search", [[('state', '=', 'installed')]])
-                output(f"  - {len(mods)} modules to update translate")
+                output("  - ", sep="")
+                output(str(len(mods)), font="arial 9 bold", sep="")
+                output(" modules to update translate")
                 if required_patch_odoo_versions:
                     result = models.execute_kw(cf.db, uid, cf.password, "ir.module.module", "remote_update_translation", [mods], {'filter_lang': code, 'context': {'overwrite': True}})
                 else:
@@ -199,19 +219,35 @@ def run_update(cf: Config, output_handler: callable = None, is_gui: bool = False
 
                 if type(result) is dict and 'status' in result:
                     if result['status']:
-                        output(f"  - Update success\n  - Duration: {int(time.time() - start_time)} second(s)")
+                        output("  - Update ", sep="")
+                        output("success", text_color="green")
+                        output("  - Duration: ", sep="")
+                        output(f"{int(time.time() - start_time)}", font="arial 9 bold", sep="")
+                        output(" second(s)")
                     else:
                         log_text += f"Update error logs:\n{result['error']}"
-                        output(f"  - Update failed!\n  - Error message:\n{result['error']}")
+                        output("  - Update ", sep="")
+                        output("failed", text_color="red")
+                        output("  - Error message: ", sep="")
+                        output(result['error'], font="Consolas 9")
                 elif type(result) is bool:
                     if result:
-                        output(f"  - Update success\n  - Duration: {int(time.time() - start_time)} second(s)")
+                        output("  - Update ", sep="")
+                        output("success", text_color="green")
+                        output("  - Duration: ", sep="")
+                        output(f"{int(time.time() - start_time)}", font="arial 9 bold", sep="")
+                        output(" second(s)")
                     else:
-                        output(f"  - Update failed! Please check server logs")
+                        output("  - Update ", sep="")
+                        output("failed", text_color="red", sep="")
+                        output(". Please check server logs.")
                 else:
-                    output(f"  - Unknown response: {str(result)}")
+                    output("  - Unknown response: ", sep="")
+                    output(str(result), font="Consolas 9")
             else:
-                output(f"  - Could not find the language code: {code} active in database, please check it is correct and installed")
+                output(f"  - Could not find the language code: ", sep="")
+                output(code, font="arial 9 bold", sep="")
+                output(" active in database, please check it is correct and installed")
         except xmlrpc.client.Fault as e:
             log_text = log_text + f"\nXMLRPC error:\n{e.__str__()}" if log_text else e.__str__()
             log_file_path_lang = log_to_file(log_text, suffix="_trans_log_", config_file=cf.config_file)
@@ -293,14 +329,15 @@ def gui_mode():
                        margins=(15, 15))
     window.set_icon(resource_path('resources/icon.ico'))
 
-    def update_status(text: str, clear: bool = False, sep="\n", font: str = None):
+    def update_status(text: str, clear: bool = False, sep="\n", font: str = None, text_color: str = None):
         global is_exit
         if is_exit:
             return
         if not clear:
-            window['-STATUS-'].print(text, sep=sep, font=font)
+            window['-STATUS-'].print(text, end=sep, font=font, text_color=text_color)
         else:
-            window['-STATUS-'].update(text, sep=sep, font=font)
+            window['-STATUS-'].update("")
+            window['-STATUS-'].print(text, end=sep, font=font, text_color=text_color)
 
     def read_event():
         global event, values, is_cancel, is_running, is_exit
@@ -329,14 +366,26 @@ def gui_mode():
         if values:
             if current_cf_file != values['-CF-FILE-']:
                 current_cf_file = values['-CF-FILE-']
-                update_status(f"---\nConfig file: {current_cf_file if current_cf_file else ''}")
-                if current_cf_file and not values['-MODULES-']:
+                update_status("---")
+                update_status("Config file: ", sep="", font="arial 9 bold")
+                update_status(current_cf_file if current_cf_file else '')
+                if current_cf_file:
                     with open(current_cf_file, 'r') as f:
                         try:
                             config = json.load(f)
-                            if 'modules_to_update' in config:
+                            if 'modules_to_update' in config and not values['-MODULES-']:
                                 window['-MODULES-'].update("\n".join(config['modules_to_update']))
-                            update_status(f"  - ERP server: {config['url']}\n  - Database: {config['db']}\n  - Username: {config['username']}\n  - Password set: {'YES' if config['password'] else 'NO'}", font="Consolas 9 bold")
+                            update_status("  - ERP server: ", font="Consolas 9", sep="")
+                            update_status(config['url'], font="Consolas 9 bold")
+                            update_status("  - Database: ", font="Consolas 9", sep="")
+                            update_status(config['db'], font="Consolas 9 bold")
+                            update_status("  - Username: ", font="Consolas 9", sep="")
+                            update_status(config['username'], font="Consolas 9 bold")
+                            update_status("  - Password: ", font="Consolas 9", sep="")
+                            if config['password']:
+                                update_status("YES", font="Consolas 9 bold", text_color="green")
+                            else:
+                                update_status("NO", font="Consolas 9 bold", text_color="red")
                         except Exception:
                             update_status(f"---\nError: Cannot read config file {current_cf_file}\nError logs:\n{traceback.format_exc()}")
 
@@ -352,8 +401,6 @@ def gui_mode():
             waiting_time = values['-WAITING-TIME-']
             waiting_time = int(waiting_time) if waiting_time else 0
             if config_file and (modules or language):
-                start_update_msg = "=== Start update request... ==="
-                no_admin_pw_msg = "*** Warning: The admin password is empty ***"
                 if os.path.isfile(config_file):
                     allow_run = True
                     with open(config_file, 'r') as f:
@@ -367,27 +414,26 @@ def gui_mode():
                                     if item.strip():
                                         erp_config.modules_to_update.append(item.strip())
                                 if not erp_config.url or not erp_config.db:
-                                    update_status("---\nError: Missing config for remote server URL and database name")
+                                    update_status("---\nError: ", font="arial 9 bold", sep="")
+                                    update_status("Missing config for remote server URL and/or database name")
                                     allow_run = False
                                 if not erp_config.modules_to_update and allow_run:
-                                    update_status("---\nError: Please input module(s) to update")
+                                    update_status("---\nError: ", font="arial 9 bold", sep="")
+                                    update_status("Please input module(s) to update")
                                     allow_run = False
                             if language:
                                 erp_config.language_to_update = language
                                 allow_run = True
                         except Exception:
                             allow_run = False
-                            update_status(
-                                f"---\nError: Reading config file failed!\nError logs:\n{traceback.format_exc()}")
+                            update_status("---\nError: ", font="arial 9 bold", sep="")
+                            update_status(f"Reading config file failed!")
+                            update_status(f"Error logs:", font="arial 9 bold")
+                            update_status(f"{traceback.format_exc()}", font="Consolas 9")
                     if allow_run:
                         if admin_pwd:
                             erp_config.password = admin_pwd
-                        else:
-                            if not erp_config.password:
-                                if waiting_time:
-                                    update_status(no_admin_pw_msg)
-                                else:
-                                    start_update_msg += f"\n{no_admin_pw_msg}"
+                            update_status("- Auth using password is set from input")
                         if waiting_time:
                             update_status(f"Wait for {waiting_time} seconds...")
                             i = 0
@@ -398,20 +444,28 @@ def gui_mode():
                                 if not i % 5:
                                     update_status(f"Time wait remain: {waiting_time - i} seconds...")
                         if is_cancel:
-                            update_status('Cancel...')
+                            update_status('=== CANCEL ===', font="arial 9 bold")
                             is_cancel = False
                         else:
-                            update_status(start_update_msg + "\n", clear=True)
+                            update_status("=== UPDATE START ===", clear=True, font="arial 9 bold")
                             try:
                                 run_update(erp_config, update_status, True)
-                                update_status("=== End ===")
+                                update_status("=== UPDATE END ===", font="arial 9 bold")
                             except Exception:
                                 log_text = traceback.format_exc()
                                 log_file = log_to_file(log_text, config_file=current_cf_file)
-                                update_status(f"\n---\nError: Request update error, shorten logs:\n{log_text[:100]}...\n...{log_text[-100:]}\nDetail in log file: {log_file}")
-                                update_status("=== End ===")
+                                update_status(f"\n---")
+                                update_status("Error: ", font="arial 9 bold", sep="")
+                                update_status("The update request error, shorten logs:")
+                                update_status(f"{log_text[:100]}\n...\n...{log_text[-100:]}", font="Consolas 9")
+                                update_status("Log file: ", font="arial 9 bold", sep="")
+                                update_status(log_file)
+                                update_status("=== UPDATE END ===", font="arial 9 bold")
                 else:
-                    update_status(f"=== ERROR ===\nThe config file \"{config_file}\" is not exit!", True)
+                    update_status(f"=== ERROR ===", clear=True, font="arial 9 bold")
+                    update_status(f"The config file ", sep="")
+                    update_status(config_file, font="arial 9 bold")
+                    update_status(" is not exist!")
             else:
                 if not config_file:
                     update_status('Please select a config file...', clear=True)

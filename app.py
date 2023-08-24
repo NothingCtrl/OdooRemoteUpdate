@@ -154,20 +154,24 @@ def run_update(cf: Config, output_handler: callable = None, is_gui: bool = False
         if ids:
             start_time = time.time()
             log_file_path = None
+            server_busy = False
             try:
                 result = models.execute_kw(cf.db, uid, cf.password, model_name, update_method, [ids])
             except xmlrpc.client.Fault as e:
-                log_file_path = log_to_file(e.__str__(), config_file=cf.config_file)
+                fault = e.__str__()
+                log_file_path = log_to_file(fault, config_file=cf.config_file)
                 result = None
-            if type(result) is dict and (
-                    ('tag' in result and result['tag'] == 'reload') or ('url' in result and result['url'] == '/web')):
+                if 'The server is busy right now' in fault:
+                    server_busy = True
+
+            if (type(result) is dict and (('tag' in result and result['tag'] == 'reload') or ('url' in result and result['url'] == '/web'))) or server_busy:
                 # success, server response: client reload or redirect to home page
                 end_time = time.time()
                 output(f"- [{count}/{total_update}] Update module ", sep="")
                 output(tech_name, font='arial 9 bold', sep="")
                 output(" --- ", sep="")
-                output("OK", font='arial 9', text_color='green', sep="")
-                output(f", run-time: {end_time - start_time:.2f} seconds")
+                output("OK" if not server_busy else "OK (server busy!)", font='arial 9', text_color='green', sep="")
+                output(f", run-time: {end_time - start_time:.2f} seconds" if not server_busy else ', run-time: n/a')
             else:
                 output(f"- [{count}/{total_update}] Update module ", sep="")
                 output(tech_name, font='arial 9 bold', sep="")
@@ -175,9 +179,9 @@ def run_update(cf: Config, output_handler: callable = None, is_gui: bool = False
                 output("FAILED", font='arial 9', text_color='red', sep="")
                 output(", RESPONSE: ", sep="")
                 output(result, font="Consolas 9")
-                if log_file_path:
-                    output("    - Log file: ", sep="")
-                    output(log_file_path, font="Consolas 9")
+            if log_file_path:
+                output("    - Log file: ", sep="")
+                output(log_file_path, font="Consolas 9")
         else:
             output(f"- [{count}/{total_update}] Update module ", sep="")
             output(tech_name, font='arial 9 bold', sep="")

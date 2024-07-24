@@ -11,6 +11,8 @@ import traceback
 import xmlrpc.client
 from xmlrpc.client import Transport
 from http import client
+import wave
+import pyaudio
 import PySimpleGUI as sg
 
 base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -50,6 +52,25 @@ class Config:
         self.password = password
         self.modules_to_update = modules_to_update
         self.language_to_update = ""
+
+def play_audio(is_error: bool = False):
+    chunk = 1024
+    mp3_file = 'resources/success.wav' if not is_error else 'resources/error.wav'
+    def _play_audio():
+        # song = AudioSegment.from_wav(resource_path(mp3_file))
+        # play(song)
+        with wave.open(resource_path(mp3_file), 'rb') as wf:
+            p = pyaudio.PyAudio()
+            stream = p.open(format=p.get_format_from_width(wf.getsampwidth()),
+                            channels=wf.getnchannels(),
+                            rate=wf.getframerate(),
+                            output=True)
+            while len(data := wf.readframes(chunk)):  # Requires Python 3.8+ for :=
+                stream.write(data)
+            stream.close()
+            p.terminate()
+
+    threading.Thread(target=_play_audio, daemon=True).start()
 
 
 def log_to_file(log_text: str, suffix="_execute_log_", config_file: str = ""):
@@ -134,6 +155,7 @@ def run_update(cf: Config, output_handler: callable = None, is_gui: bool = False
         output(f"Running (current time is: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})...\n", sep='')
 
     count = 0
+    is_all_ok = True
     for tech_name in cf.modules_to_update:
         count += 1
         try:
@@ -150,7 +172,7 @@ def run_update(cf: Config, output_handler: callable = None, is_gui: bool = False
                 output("- ", sep="")
                 output("Error: ", font="arial 9 bold", sep="")
                 output(str(e), font="Consolas 9")
-            return
+            return False
         if ids:
             start_time = time.time()
             log_file_path = None
@@ -163,6 +185,7 @@ def run_update(cf: Config, output_handler: callable = None, is_gui: bool = False
                 result = None
                 if 'The server is busy right now' in fault:
                     server_busy = True
+                is_all_ok = False
 
             if (type(result) is dict and (('tag' in result and result['tag'] == 'reload') or ('url' in result and result['url'] == '/web'))) or server_busy:
                 # success, server response: client reload or redirect to home page
@@ -179,6 +202,7 @@ def run_update(cf: Config, output_handler: callable = None, is_gui: bool = False
                 output("FAILED", font='arial 9', text_color='red', sep="")
                 output(", RESPONSE: ", sep="")
                 output(result, font="Consolas 9")
+                is_all_ok = False
             if log_file_path:
                 output("    - Log file: ", sep="")
                 output(log_file_path, font="Consolas 9")
@@ -187,6 +211,7 @@ def run_update(cf: Config, output_handler: callable = None, is_gui: bool = False
             output(tech_name, font='arial 9 bold', sep="")
             output(" --- ", sep="")
             output("module is not found!", font='arial 9', text_color='red')
+            is_all_ok = False
 
     if cf.language_to_update:
         # odoo from version 11.0 required patch to remote call internal function _update_translations
@@ -234,6 +259,7 @@ def run_update(cf: Config, output_handler: callable = None, is_gui: bool = False
                         output("failed", text_color="red")
                         output("  - Error message: ", sep="")
                         output(result['error'], font="Consolas 9")
+                        is_all_ok = False
                 elif type(result) is bool:
                     if result:
                         output("  - Update ", sep="")
@@ -245,17 +271,23 @@ def run_update(cf: Config, output_handler: callable = None, is_gui: bool = False
                         output("  - Update ", sep="")
                         output("failed", text_color="red", sep="")
                         output(". Please check server logs.")
+                        is_all_ok = False
                 else:
                     output("  - Unknown response: ", sep="")
                     output(str(result), font="Consolas 9")
+                    is_all_ok = False
             else:
                 output(f"  - Could not find the language code: ", sep="")
                 output(code, font="arial 9 bold", sep="")
                 output(" active in database, please check it is correct and installed")
+                is_all_ok = False
         except xmlrpc.client.Fault as e:
             log_text = log_text + f"\nXMLRPC error:\n{e.__str__()}" if log_text else e.__str__()
             log_file_path_lang = log_to_file(log_text, suffix="_trans_log_", config_file=cf.config_file)
             output("    - Log file: {}".format(log_file_path_lang))
+            is_all_ok = False
+
+    return is_all_ok
 
 
 def console_mode():
@@ -311,6 +343,9 @@ def gui_mode():
                           key='-WAITING-TIME-')
         ],
         [
+            sg.Checkbox(text='Play sound when done', key='-PLAY-DONE-', default=True)
+        ],
+        [
             sg.Button("Run now", enable_events=True, key='-BTN-RUN-'),
             sg.Button("Cancel", enable_events=True, key='-BTN-CANCEL-')
         ]
@@ -318,7 +353,7 @@ def gui_mode():
     log_status = [
         [
             sg.Text("Status"),
-            sg.Multiline(size=(50, 12), key='-STATUS-', disabled=True, autoscroll=True, auto_refresh=True)
+            sg.Multiline(size=(50, 14), key='-STATUS-', disabled=True, autoscroll=True, auto_refresh=True)
         ]
     ]
     layout = [
@@ -404,6 +439,7 @@ def gui_mode():
             admin_pwd = values['-ADMIN-PWD-']
             waiting_time = values['-WAITING-TIME-']
             waiting_time = int(waiting_time) if waiting_time else 0
+            play_sound = values['-PLAY-DONE-']
             if config_file and (modules or language):
                 if os.path.isfile(config_file):
                     allow_run = True
@@ -434,6 +470,8 @@ def gui_mode():
                             update_status(f"Reading config file failed!")
                             update_status(f"Error logs:", font="arial 9 bold")
                             update_status(f"{traceback.format_exc()}", font="Consolas 9")
+                            if play_sound:
+                                play_audio(True)
                     if allow_run:
                         if admin_pwd:
                             erp_config.password = admin_pwd
@@ -453,8 +491,10 @@ def gui_mode():
                         else:
                             update_status("=== UPDATE START ===", clear=True, font="arial 9 bold")
                             try:
-                                run_update(erp_config, update_status, True)
+                                is_ok = run_update(erp_config, update_status, True)
                                 update_status("=== UPDATE END ===", font="arial 9 bold")
+                                if play_sound:
+                                    play_audio(is_error=not is_ok)
                             except Exception:
                                 log_text = traceback.format_exc()
                                 log_file = log_to_file(log_text, config_file=current_cf_file)
@@ -465,11 +505,15 @@ def gui_mode():
                                 update_status("Log file: ", font="arial 9 bold", sep="")
                                 update_status(log_file)
                                 update_status("=== UPDATE END ===", font="arial 9 bold")
+                                if play_sound:
+                                    play_audio(True)
                 else:
                     update_status(f"=== ERROR ===", clear=True, font="arial 9 bold")
                     update_status(f"The config file ", sep="")
                     update_status(config_file, font="arial 9 bold")
                     update_status(" is not exist!")
+                    if play_sound:
+                        play_audio(True)
             else:
                 if not config_file:
                     update_status('Please select a config file...', clear=True)

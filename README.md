@@ -1,4 +1,4 @@
-# Remote Odoo Request Update
+# Odoo Remote Update
 
 A convenient tool help you update one or more module(s) on remote Odoo (OpenERP) server without access Web GUI.
 

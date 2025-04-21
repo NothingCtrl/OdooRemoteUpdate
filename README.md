@@ -20,6 +20,21 @@ Firstly, you will need create a config file, example `demo_config.json` with con
 }
 ```
 
+The **password** config is optional.
+
+* To secure the password in file, use Fernet to create password token, the Fernet key must set in environment `ORUR_FERNET_KEY=...` to allow application decrypt the token
+
+  Example config with encrypted password:
+    ```json
+    {
+        "url": "http://localhost:8069",
+        "db": "my_database",
+        "username": "admin",
+        "password": "gAAAAA...",
+        "modules_to_update": ["foo", "bar"]
+    }
+    ```
+
 This config tell application execute update for modules: `foo`, `bar` using target URL `http://localhost:8069` and database `my_database`
 
 ### Remote update translation

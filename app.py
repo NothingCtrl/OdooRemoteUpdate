@@ -14,9 +14,12 @@ from http import client
 import wave
 import pyaudio
 import PySimpleGUI as sg
+from cryptography.fernet import Fernet
 
 base_dir = os.path.dirname(os.path.abspath(__file__))
 
+VERSION = '2.0'
+FERNET_KEY = 'ORUR_FERNET_KEY'
 INIT_STATE_EVENT = '--INIT-STATE--'
 color_allow = True
 event, values, is_cancel, is_running, is_exit = INIT_STATE_EVENT, {}, False, False, False
@@ -302,6 +305,9 @@ def console_mode():
         if os.path.isfile(sys.argv[1]):
             with open(sys.argv[1], "r") as f:
                 config = json.load(f)
+                if config['password'] and config['password'].startswith('gAAAAA') and os.getenv(FERNET_KEY, ''):
+                    fernet = Fernet(os.getenv(FERNET_KEY).encode())
+                    config['password'] = fernet.decrypt(config['password'].encode()).decode()
                 erp_config = Config(**config)
                 if len(sys.argv) == 3:
                     erp_config.password = sys.argv[2]
@@ -364,7 +370,7 @@ def gui_mode():
         ]
     ]
     # sg.ChangeLookAndFeel('Dark')  # dark mode
-    window = sg.Window(title="Odoo Remote Update Request", layout=layout,
+    window = sg.Window(title=f"Odoo Remote Update Request (version: {VERSION})", layout=layout,
                        margins=(15, 15))
     window.set_icon(resource_path('resources/icon.ico'))
 
@@ -422,7 +428,10 @@ def gui_mode():
                             update_status(config['username'], font="Consolas 9 bold")
                             update_status("  - Password: ", font="Consolas 9", sep="")
                             if config['password']:
-                                update_status("YES", font="Consolas 9 bold", text_color="green")
+                                if config['password'].startswith('gAAAAA'):
+                                    update_status("YES (encrypted)", font="Consolas 9 bold", text_color="green")
+                                else:
+                                    update_status("YES", font="Consolas 9 bold", text_color="green")
                             else:
                                 update_status("NO", font="Consolas 9 bold", text_color="red")
                         except Exception:
@@ -446,6 +455,13 @@ def gui_mode():
                     with open(config_file, 'r') as f:
                         try:
                             config = json.load(f)
+                            if config['password'].startswith('gAAAAA'):
+                                if os.getenv(FERNET_KEY, ''):
+                                    fernet = Fernet(os.getenv(FERNET_KEY).encode())
+                                    config['password'] = fernet.decrypt(config['password'].encode()).decode()
+                                else:
+                                    update_status("---\nWarning: ", font="arial 9 bold", sep="")
+                                    update_status("Cannot find Fernet key in current environment")
                             erp_config = Config(**config)
                             erp_config.modules_to_update = []
                             erp_config.config_file = current_cf_file

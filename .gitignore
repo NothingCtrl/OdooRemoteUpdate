@@ -6,6 +6,7 @@ venv
 configs/
 logs/
 *.bat
+!build_exec.bat
 build/
 dist/
 app.spec
